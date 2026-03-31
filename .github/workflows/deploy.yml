@@ -1,0 +1,52 @@
+name: Build and Deploy to AKS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ACR_NAME: carlos69lamejor.azurecr.io
+  IMAGE_NAME: aks-app
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Login to ACR
+      run: |
+        docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+        -u ${{ secrets.ACR_USERNAME }} \
+        -p ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build and Push Image
+      run: |
+        docker build -t $ACR_NAME/$IMAGE_NAME:v3 .
+        docker push $ACR_NAME/$IMAGE_NAME:v3
+
+    - name: Set AKS context
+      run: |
+        az aks get-credentials \
+          --resource-group rg-k8s-lab \
+          --name aks-lab
+
+    - name: Deploy to AKS
+      run: |
+        kubectl set image deployment/aks-app \
+          aks-app=$ACR_NAME/$IMAGE_NAME:v3 || \
+        kubectl create deployment aks-app \
+          --image=$ACR_NAME/$IMAGE_NAME:v3
+
+        kubectl expose deployment aks-app \
+          --type=LoadBalancer \
+          --port=80 \
+          --target-port=3000 || true
