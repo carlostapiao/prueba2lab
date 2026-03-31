@@ -16,27 +16,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 🔹 1. Descargar código
+    # 🔹 1. Checkout código
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # 🔹 2. Login a Azure (Service Principal)
+    # 🔹 2. Login a Azure
     - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 🔹 3. Login a ACR (sin passwords manuales)
+    # 🔹 3. Login a ACR (sin TTY issues)
     - name: Login to ACR
       run: az acr login --name carlos69lamejor
 
-    # 🔹 4. Build + Push (arquitectura correcta)
+    # 🔹 4. Configurar buildx (CLAVE para amd64)
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # 🔹 5. Build + Push CORRECTO (sin errores de arquitectura)
     - name: Build and Push Image
       run: |
-        docker build --platform linux/amd64 -t $ACR_NAME/$IMAGE_NAME:${{ github.sha }} .
-        docker push $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
+        docker buildx build \
+          --platform linux/amd64 \
+          -t $ACR_NAME/$IMAGE_NAME:${{ github.sha }} \
+          --push .
 
-    # 🔹 5. Obtener credenciales AKS
+    # 🔹 6. Obtener credenciales AKS
     - name: Get AKS credentials
       run: |
         az aks get-credentials \
@@ -44,7 +50,7 @@ jobs:
           --name $CLUSTER_NAME \
           --overwrite-existing
 
-    # 🔹 6. Deploy (create o update automático)
+    # 🔹 7. Deploy (create/update automático)
     - name: Deploy to AKS
       run: |
         kubectl create deployment aks-app \
@@ -60,7 +66,7 @@ jobs:
           --target-port=3000 \
           --dry-run=client -o yaml | kubectl apply -f -
 
-    # 🔹 7. Verificación básica
+    # 🔹 8. Verificación
     - name: Verify deployment
       run: |
         kubectl get pods
