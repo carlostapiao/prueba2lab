@@ -8,45 +8,60 @@ on:
 env:
   ACR_NAME: carlos69lamejor.azurecr.io
   IMAGE_NAME: aks-app
+  RESOURCE_GROUP: rg-k8s-lab
+  CLUSTER_NAME: aks-lab
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
+    # 🔹 1. Descargar código
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Login to Azure
+    # 🔹 2. Login a Azure (Service Principal)
+    - name: Azure Login
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    # 🔹 3. Login a ACR (sin passwords manuales)
     - name: Login to ACR
-      run: |
-        docker login ${{ secrets.ACR_LOGIN_SERVER }} \
-        -u ${{ secrets.ACR_USERNAME }} \
-        -p ${{ secrets.ACR_PASSWORD }}
+      run: az acr login --name carlos69lamejor
 
+    # 🔹 4. Build + Push (arquitectura correcta)
     - name: Build and Push Image
       run: |
-        docker build -t $ACR_NAME/$IMAGE_NAME:v3 .
-        docker push $ACR_NAME/$IMAGE_NAME:v3
+        docker build --platform linux/amd64 -t $ACR_NAME/$IMAGE_NAME:${{ github.sha }} .
+        docker push $ACR_NAME/$IMAGE_NAME:${{ github.sha }}
 
-    - name: Set AKS context
+    # 🔹 5. Obtener credenciales AKS
+    - name: Get AKS credentials
       run: |
         az aks get-credentials \
-          --resource-group rg-k8s-lab \
-          --name aks-lab
+          --resource-group $RESOURCE_GROUP \
+          --name $CLUSTER_NAME \
+          --overwrite-existing
 
+    # 🔹 6. Deploy (create o update automático)
     - name: Deploy to AKS
       run: |
-        kubectl set image deployment/aks-app \
-          aks-app=$ACR_NAME/$IMAGE_NAME:v3 || \
         kubectl create deployment aks-app \
-          --image=$ACR_NAME/$IMAGE_NAME:v3
+          --image=$ACR_NAME/$IMAGE_NAME:${{ github.sha }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        kubectl set image deployment/aks-app \
+          aks-app=$ACR_NAME/$IMAGE_NAME:${{ github.sha }}
 
         kubectl expose deployment aks-app \
           --type=LoadBalancer \
           --port=80 \
-          --target-port=3000 || true
+          --target-port=3000 \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    # 🔹 7. Verificación básica
+    - name: Verify deployment
+      run: |
+        kubectl get pods
+        kubectl get svc aks-app
